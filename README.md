@@ -2,7 +2,7 @@
 
 # ⚡ Notifier — Multi-Channel Notification Dispatcher Engine
 
-**A high-performance, modular notification dispatching engine built with NestJS 11, Prisma ORM, PostgreSQL (Neon), and pg-boss queue.**
+**An enterprise-grade, modular notification dispatching engine built with NestJS 11, Prisma ORM, PostgreSQL (Neon), and pg-boss queue.**
 
 [![NestJS](https://img.shields.io/badge/NestJS-v11-E0234E?logo=nestjs&logoColor=white)](https://nestjs.com)
 [![Prisma](https://img.shields.io/badge/Prisma-v7-2D3748?logo=prisma&logoColor=white)](https://www.prisma.io)
@@ -16,8 +16,14 @@
 
 ## 🌟 Key Features
 
-- 📬 **Multi-Channel Dispatching**: Unified interface for Email, WhatsApp, Telegram, Webhook, and Push (FCM).
-- 🔄 **Automatic Cross-Channel Fallback**: Automatically tries an alternate channel (e.g. Email ➡️ Telegram) when primary delivery fails.
+- 📬 **Multi-Channel Dispatching**: Unified interface for Email, WhatsApp, Telegram, Webhook, Push (FCM), and **In-App Realtime Feed**.
+- ⏱️ **Scheduled & Delayed Dispatch**: Schedule delivery for exact future ISO timestamps or relative second delays (`sendAt`, `delaySeconds`).
+- 📢 **Batch & Broadcast Engine**: High-throughput chunked broadcast dispatches to entire subscriber bases or targeted segment filters (`POST /api/v1/notify/broadcast`).
+- 🔔 **In-App Realtime Feed & SSE**: Persistent in-app notifications with read status (`isRead`, `readAt`) and live streaming via Server-Sent Events (SSE).
+- 📬 **Inbound Delivery Webhooks**: Real-time status sync (`DELIVERED`, `OPENED`, `CLICKED`, `BOUNCED`) from Resend, Twilio, and Fonnte webhooks.
+- 🚦 **Smart Throttling & Frequency Capping**: Sliding window rate limits preventing subscriber spam and protecting provider quota.
+- 📦 **Notification Digest / Aggregation**: Automatically aggregates rapid alert bursts within a time window into a single consolidated summary.
+- 🔄 **Automatic Cross-Channel Fallback**: Automatically tries an alternate channel (e.g., Email ➡️ Telegram) when primary delivery fails.
 - 🐘 **Zero-Extra-Container Queue (`pg-boss`)**: High-throughput background jobs directly in PostgreSQL. No Redis required!
 - 🎨 **Handlebars Template Engine**: Dynamic templates with variable substitution, loops, conditions, and custom helpers (`upperCase`, `lowerCase`, `defaultVal`, `formatDate`).
 - 🎛️ **Granular User Preferences**: Category-based opt-in/opt-out preferences (e.g., `TRANSACTIONAL`, `MARKETING`, `SECURITY`).
@@ -29,34 +35,55 @@
 
 ## 🧩 Supported Channels & Providers
 
-| Channel | Supported Providers | Environment Variables |
+| Channel | Supported Providers | Key Capabilities |
 | :--- | :--- | :--- |
-| **Email** | **Resend** (API), **SMTP** (Nodemailer / Mailtrap / Gmail) | `RESEND_API_KEY`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS` |
-| **WhatsApp** | **Fonnte** (API), **Twilio** (REST API) | `FONNTE_TOKEN`, `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN` |
-| **Telegram** | **Telegram Bot API** (Markdown / HTML) | `TELEGRAM_BOT_TOKEN` |
-| **Webhook** | **Discord**, **Slack**, or **Custom HTTP Endpoint** | Destination URL provided in subscriber/template |
-| **Push** | **Firebase Cloud Messaging (FCM)** | `FCM_PROJECT_ID`, `FCM_CLIENT_EMAIL`, `FCM_PRIVATE_KEY` |
+| **Email** | **Resend**, **SMTP** (Nodemailer / Mailtrap) | HTML & plaintext, dynamic Handlebars variables, bounce/open webhooks |
+| **WhatsApp** | **Fonnte**, **Twilio** | Direct messaging, read receipts, delivery webhooks |
+| **Telegram** | **Telegram Bot API** | HTML/Markdown formatting, direct bot notifications |
+| **In-App Feed** | **Native In-App Store + SSE Stream** | Live SSE push (`/stream`), notification drawer, unread counter, read status |
+| **Webhook** | **Discord**, **Slack**, **Custom HTTP** | Discord embeds, Slack blocks, raw JSON events |
+| **Push** | **Firebase Cloud Messaging (FCM)** | Device token push dispatch |
 
 ---
 
 ## 🏗️ Architecture Flow
 
 ```text
-[ Client Application ]
-        │  (x-api-key / Bearer)
-        ▼
-[ POST /api/v1/notify ] ──► [ Prisma DB: Save QUEUED Log ]
-        │
-        ▼
-[ pg-boss Background Queue ] (Neon PostgreSQL)
-        │
-        ▼
-[ NotificationWorkerService ]
-        ├── 1. Verify User Preferences (Check Opt-In / Opt-Out)
-        ├── 2. Render Template via Handlebars Engine
-        ├── 3. Send via Channel Provider Adapter (Strategy Pattern)
-        ├── 4. Update Audit Log (DELIVERED + messageId)
-        └── 5. On Failure: Trigger Retry & Cross-Channel Fallback
+                                [ Client Applications / Cron ]
+                                               │
+       ┌───────────────────────────────────────┼───────────────────────────────────────┐
+       ▼                                       ▼                                       ▼
+[ POST /notify ]                      [ POST /notify/broadcast ]              [ Inbound Webhooks ]
+(Single / Scheduled)                  (Targeted / Segmented)                  (/webhooks/resend...)
+       │                                       │                                       │
+       └──────────────────────────────────┬────┘                                       │
+                                          │ (Validation & Enqueue)                     │
+                                          ▼                                            │
+                         [ pg-boss Queue: notifications-dispatch ]                     │
+                                          │                                            │
+                                          ▼                                            │
+                            [ NotificationWorkerService ]                              │
+                                          │                                            │
+                ┌─────────────────────────┼─────────────────────────┐                  │
+                ▼                         ▼                         ▼                  │
+      [ Throttle Guard ]         [ Digest Buffer ]         [ Template Engine ]         │
+    (Check Frequency Caps)     (Window Consolidation)    (Handlebars + Helpers)        │
+                │                         │                         │                  │
+                └─────────────────────────┼─────────────────────────┘                  │
+                                          ▼                                            │
+                               [ Provider Factory ]                                    │
+                ┌──────────────┬──────────┴───┬──────────────┬──────────────┐          │
+                ▼              ▼              ▼              ▼              ▼          │
+             [ EMAIL ]    [ WHATSAPP ]   [ TELEGRAM ]    [ IN_APP ]     [ WEBHOOK ]    │
+             (Resend/SMTP) (Fonnte/Twilio) (Bot API)     (Feed / SSE)   (Slack/Discord)│
+                │              │              │              │              │          │
+                └──────────────┴──────────────┴──────────────┴──────────────┘          │
+                                              │                                        │
+                                              ▼                                        ▼
+                                  [ Neon PostgreSQL Database ] ◄──────────────────────┘
+                                  - NotificationLog (Lifecycle & Status)
+                                  - InAppNotification (Feed & isRead)
+                                  - NotificationDigest (Buffer)
 ```
 
 ---
@@ -82,13 +109,11 @@ pnpm install
 
 ### 3. Environment Configuration
 
-Copy `.env.example` to `.env` and fill in your credentials:
+Copy `.env.example` to `.env` and configure your credentials:
 
 ```bash
 cp .env.example .env
 ```
-
-Key environment variables:
 
 ```ini
 # Application
@@ -129,8 +154,6 @@ npx tsx prisma/seed.ts
 ```bash
 # Development mode (watch)
 pnpm dev
-# or
-pnpm start:dev
 
 # Production build & run
 pnpm build
@@ -139,9 +162,7 @@ pnpm start:prod
 
 ---
 
-## 📖 API Documentation & Endpoints
-
-Once the application is running, access the interactive documentation:
+## 📖 Interactive Documentation
 
 - 🦁 **Scalar API Reference**: [http://localhost:3000/reference](http://localhost:3000/reference)
 - 📘 **Swagger UI**: [http://localhost:3000/docs](http://localhost:3000/docs)
@@ -151,109 +172,80 @@ Once the application is running, access the interactive documentation:
 
 ## 📡 API Usage Examples
 
-All API requests require authentication using either header:
-- `x-api-key: <YOUR_API_KEY>`
-- `Authorization: Bearer <YOUR_API_KEY>`
-
-### 1. Dispatch a Notification
+### 1. Dispatch Instant / Scheduled Notification
 
 ```bash
+# Instant Dispatch
 curl -X POST http://localhost:3000/api/v1/notify \
   -H "Content-Type: application/json" \
   -H "x-api-key: notif_sec_master_key_12345" \
   -d '{
     "subscriberExternalId": "usr_demo_100",
     "templateSlug": "welcome-user",
-    "variables": {
-      "name": "Jane Doe",
-      "appName": "Acme Cloud"
-    }
+    "variables": { "name": "Jane Doe", "appName": "Acme Cloud" }
   }'
-```
 
-**Response (`202 Accepted`):**
-```json
-{
-  "statusCode": 202,
-  "data": {
-    "status": "QUEUED",
-    "logId": "5c98e1f0-0a2b-4d43-85b1-d9a1841e0123",
+# Scheduled Dispatch (e.g. 1 hour delay)
+curl -X POST http://localhost:3000/api/v1/notify \
+  -H "Content-Type: application/json" \
+  -H "x-api-key: notif_sec_master_key_12345" \
+  -d '{
     "subscriberExternalId": "usr_demo_100",
     "templateSlug": "welcome-user",
-    "channel": "EMAIL"
-  },
-  "timestamp": "2026-09-02T15:30:00.000Z"
-}
-```
-
----
-
-### 2. Register / Upsert a Subscriber
-
-```bash
-curl -X POST http://localhost:3000/api/v1/subscribers/upsert \
-  -H "Content-Type: application/json" \
-  -H "x-api-key: notif_sec_master_key_12345" \
-  -d '{
-    "externalId": "usr_cust_8829",
-    "email": "customer@example.com",
-    "phoneNumber": "+6281234567890",
-    "telegramChatId": "987654321",
-    "webhookUrl": "https://discord.com/api/webhooks/xxx/yyy",
-    "metadata": {
-      "tier": "enterprise",
-      "country": "ID"
-    }
+    "delaySeconds": 3600,
+    "variables": { "name": "Jane Doe", "appName": "Acme Cloud" }
   }'
 ```
 
 ---
 
-### 3. Create a Notification Template
+### 2. Broadcast Notification to Multiple Subscribers
 
 ```bash
-curl -X POST http://localhost:3000/api/v1/templates \
+curl -X POST http://localhost:3000/api/v1/notify/broadcast \
   -H "Content-Type: application/json" \
   -H "x-api-key: notif_sec_master_key_12345" \
   -d '{
-    "slug": "payment-success",
-    "title": "Payment Success Notification",
-    "subject": "Payment Received for Invoice #{{invoiceId}}",
-    "bodyText": "Hi {{name}}, your payment of {{amount}} has been confirmed.",
-    "bodyHtml": "<h2>Payment Received</h2><p>Hi <b>{{name}}</b>, your payment of <b>{{amount}}</b> is confirmed.</p>",
-    "defaultChannel": "EMAIL",
-    "fallbackChannel": "WHATSAPP"
+    "subscriberExternalIds": ["usr_demo_100", "usr_cust_200"],
+    "templateSlug": "welcome-user",
+    "variables": { "notice": "System scheduled maintenance tonight" }
   }'
 ```
 
 ---
 
-### 4. Set Subscriber Channel Preference (Opt-In / Opt-Out)
+### 3. In-App Notification Feed & SSE Stream
 
 ```bash
-curl -X POST http://localhost:3000/api/v1/preferences \
-  -H "Content-Type: application/json" \
-  -H "x-api-key: notif_sec_master_key_12345" \
-  -d '{
-    "subscriberExternalId": "usr_cust_8829",
-    "channel": "EMAIL",
-    "category": "MARKETING",
-    "isEnabled": false
-  }'
-```
-
----
-
-### 5. Inspect Audit Logs
-
-```bash
-# Query recent logs
-curl -X GET "http://localhost:3000/api/v1/notify/logs?limit=10" \
+# Get in-app notification feed
+curl -X GET "http://localhost:3000/api/v1/in-app/notifications/usr_demo_100?isRead=false" \
   -H "x-api-key: notif_sec_master_key_12345"
 
-# Query log by ID
-curl -X GET "http://localhost:3000/api/v1/notify/logs/<LOG_ID>" \
+# Get unread count
+curl -X GET "http://localhost:3000/api/v1/in-app/unread-count/usr_demo_100" \
   -H "x-api-key: notif_sec_master_key_12345"
+
+# Mark notification as read
+curl -X PATCH "http://localhost:3000/api/v1/in-app/notifications/<NOTIF_ID>/read" \
+  -H "x-api-key: notif_sec_master_key_12345"
+
+# Subscribe to real-time Server-Sent Events (SSE) stream
+curl -N -H "Accept: text/event-stream" \
+  "http://localhost:3000/api/v1/in-app/stream/usr_demo_100"
+```
+
+---
+
+### 4. Inbound Delivery Status Webhooks
+
+```bash
+# Simulate Resend email opened event
+curl -X POST http://localhost:3000/api/v1/webhooks/resend \
+  -H "Content-Type: application/json" \
+  -d '{
+    "type": "email.opened",
+    "data": { "email_id": "msg_resend_123" }
+  }'
 ```
 
 ---
@@ -261,7 +253,7 @@ curl -X GET "http://localhost:3000/api/v1/notify/logs/<LOG_ID>" \
 ## 🧪 Testing
 
 ```bash
-# Run unit tests
+# Run all unit tests
 pnpm test
 
 # Run tests in watch mode
@@ -269,36 +261,6 @@ pnpm test:watch
 
 # Run test coverage
 pnpm test:cov
-```
-
----
-
-## 📂 Project Structure
-
-```text
-src/
-├── common/                  # Guards, decorators, filters & interceptors
-│   ├── decorators/          # @Public()
-│   ├── filters/             # Global exception filter
-│   ├── guards/              # ApiKeyGuard
-│   └── interceptors/        # Transform response interceptor
-├── config/                  # Environment & App configuration
-├── database/                # PrismaService with @prisma/adapter-pg
-└── modules/
-    ├── api-keys/            # API Key management
-    ├── dispatch/            # POST /notify & Audit log query API
-    ├── health/              # Terminus DB & Queue health checks
-    ├── preferences/         # User Opt-In/Opt-Out preferences
-    ├── providers/           # Strategy pattern provider adapters
-    │   ├── email/           # SMTP & Resend adapters
-    │   ├── push/            # Firebase Cloud Messaging adapter
-    │   ├── telegram/        # Telegram Bot API adapter
-    │   ├── webhook/         # Discord, Slack & JSON Webhooks
-    │   └── whatsapp/        # Fonnte & Twilio adapters
-    ├── queue/               # pg-boss queue & worker services
-    ├── subscribers/         # Subscriber CRUD & upsert
-    ├── template-engine/     # Handlebars compilation & caching
-    └── templates/           # Notification template management
 ```
 
 ---
