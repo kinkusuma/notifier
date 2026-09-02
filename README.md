@@ -2,7 +2,7 @@
 
 # ⚡ Notifier — Multi-Channel Notification Dispatcher Engine
 
-**An enterprise-grade, modular notification dispatching engine built with NestJS 11, Prisma ORM, PostgreSQL (Neon), and pg-boss queue.**
+**A high-performance, modular notification dispatching engine built with NestJS 11, Prisma ORM, PostgreSQL (Neon), and pg-boss queue.**
 
 [![NestJS](https://img.shields.io/badge/NestJS-v11-E0234E?logo=nestjs&logoColor=white)](https://nestjs.com)
 [![Prisma](https://img.shields.io/badge/Prisma-v7-2D3748?logo=prisma&logoColor=white)](https://www.prisma.io)
@@ -109,11 +109,13 @@ pnpm install
 
 ### 3. Environment Configuration
 
-Copy `.env.example` to `.env` and configure your credentials:
+Copy `.env.example` to `.env` and fill in your credentials:
 
 ```bash
 cp .env.example .env
 ```
+
+Key environment variables:
 
 ```ini
 # Application
@@ -154,6 +156,8 @@ npx tsx prisma/seed.ts
 ```bash
 # Development mode (watch)
 pnpm dev
+# or
+pnpm start:dev
 
 # Production build & run
 pnpm build
@@ -162,7 +166,9 @@ pnpm start:prod
 
 ---
 
-## 📖 Interactive Documentation
+## 📖 API Documentation & Endpoints
+
+Once the application is running, access the interactive documentation:
 
 - 🦁 **Scalar API Reference**: [http://localhost:3000/reference](http://localhost:3000/reference)
 - 📘 **Swagger UI**: [http://localhost:3000/docs](http://localhost:3000/docs)
@@ -253,7 +259,7 @@ curl -X POST http://localhost:3000/api/v1/webhooks/resend \
 ## 🧪 Testing
 
 ```bash
-# Run all unit tests
+# Run unit tests
 pnpm test
 
 # Run tests in watch mode
@@ -261,6 +267,36 @@ pnpm test:watch
 
 # Run test coverage
 pnpm test:cov
+```
+
+---
+
+## 📂 Project Structure
+
+```text
+src/
+├── common/                  # Guards, decorators, filters & interceptors
+│   ├── decorators/          # @Public()
+│   ├── filters/             # Global exception filter
+│   ├── guards/              # ApiKeyGuard
+│   └── interceptors/        # Transform response interceptor
+├── config/                  # Environment & App configuration
+├── database/                # PrismaService with @prisma/adapter-pg
+└── modules/
+    ├── api-keys/            # API Key management
+    ├── dispatch/            # POST /notify & Audit log query API
+    ├── health/              # Terminus DB & Queue health checks
+    ├── preferences/         # User Opt-In/Opt-Out preferences
+    ├── providers/           # Strategy pattern provider adapters
+    │   ├── email/           # SMTP & Resend adapters
+    │   ├── push/            # Firebase Cloud Messaging adapter
+    │   ├── telegram/        # Telegram Bot API adapter
+    │   ├── webhook/         # Discord, Slack & JSON Webhooks
+    │   └── whatsapp/        # Fonnte & Twilio adapters
+    ├── queue/               # pg-boss queue & worker services
+    ├── subscribers/         # Subscriber CRUD & upsert
+    ├── template-engine/     # Handlebars compilation & caching
+    └── templates/           # Notification template management
 ```
 
 ---
