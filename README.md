@@ -2,11 +2,11 @@
 
 # ⚡ Notifier — Multi-Channel Notification Dispatcher Engine
 
-**A high-performance, modular notification dispatching engine built with NestJS 11, Prisma ORM, PostgreSQL (Neon), and pg-boss queue.**
+**A high-performance, modular notification dispatching engine built with NestJS 11, Prisma ORM, PostgreSQL, and pg-boss queue.**
 
 [![NestJS](https://img.shields.io/badge/NestJS-v11-E0234E?logo=nestjs&logoColor=white)](https://nestjs.com)
 [![Prisma](https://img.shields.io/badge/Prisma-v7-2D3748?logo=prisma&logoColor=white)](https://www.prisma.io)
-[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-Neon-4169E1?logo=postgresql&logoColor=white)](https://neon.tech)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-v16-4169E1?logo=postgresql&logoColor=white)](https://www.postgresql.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-v5-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
@@ -80,7 +80,7 @@
                 └──────────────┴──────────────┴──────────────┴──────────────┘          │
                                               │                                        │
                                               ▼                                        ▼
-                                  [ Neon PostgreSQL Database ] ◄──────────────────────┘
+                                  [ PostgreSQL Database ] ◄──────────────────────────┘
                                   - NotificationLog (Lifecycle & Status)
                                   - InAppNotification (Feed & isRead)
                                   - NotificationDigest (Buffer)
@@ -94,7 +94,7 @@
 
 - **Node.js** `>= 20.x`
 - **pnpm** `>= 9.x`
-- **PostgreSQL Database** (e.g. [Neon](https://neon.tech) or local PostgreSQL)
+- **PostgreSQL Database** (`>= 14` or any managed PostgreSQL instance)
 
 ### 2. Installation
 
@@ -125,8 +125,8 @@ NODE_ENV=development
 # Master Auth Fallback
 MASTER_API_KEY=notif_sec_master_key_12345
 
-# Neon / PostgreSQL Database URL
-DATABASE_URL="postgresql://user:password@ep-sample-pooler.us-east-2.aws.neon.tech/neondb?sslmode=require"
+# PostgreSQL Database URL
+DATABASE_URL="postgresql://postgres:postgres@localhost:5432/notifier?schema=public"
 
 # Email Provider
 DEFAULT_EMAIL_PROVIDER=RESEND
