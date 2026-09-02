@@ -9,6 +9,10 @@ import { TemplatesModule } from './modules/templates/templates.module';
 import { PreferencesModule } from './modules/preferences/preferences.module';
 import { ApiKeysModule } from './modules/api-keys/api-keys.module';
 import { DispatchModule } from './modules/dispatch/dispatch.module';
+import { InAppModule } from './modules/in-app/in-app.module';
+import { WebhooksModule } from './modules/webhooks/webhooks.module';
+import { ThrottleModule } from './modules/throttle/throttle.module';
+import { DigestModule } from './modules/digest/digest.module';
 import { HealthModule } from './modules/health/health.module';
 
 @Module({
@@ -20,12 +24,16 @@ import { HealthModule } from './modules/health/health.module';
     DatabaseModule,
     TemplateEngineModule,
     ProvidersModule,
+    ThrottleModule,
+    DigestModule,
     QueueModule,
     SubscribersModule,
     TemplatesModule,
     PreferencesModule,
     ApiKeysModule,
     DispatchModule,
+    InAppModule,
+    WebhooksModule,
     HealthModule,
   ],
 })

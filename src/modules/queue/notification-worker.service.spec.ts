@@ -4,6 +4,8 @@ import { PrismaService } from '../../database/prisma.service';
 import { ProviderFactoryService } from '../providers/provider-factory.service';
 import { TemplateEngineService } from '../template-engine/template-engine.service';
 import { PreferencesService } from '../preferences/preferences.service';
+import { ThrottleService } from '../throttle/throttle.service';
+import { DigestService } from '../digest/digest.service';
 import { PgBossService } from './pg-boss.service';
 
 describe('NotificationWorkerService', () => {
@@ -12,6 +14,8 @@ describe('NotificationWorkerService', () => {
   let providerFactory: jest.Mocked<Partial<ProviderFactoryService>>;
   let templateEngine: TemplateEngineService;
   let preferencesService: jest.Mocked<Partial<PreferencesService>>;
+  let throttleService: jest.Mocked<Partial<ThrottleService>>;
+  let digestService: jest.Mocked<Partial<DigestService>>;
   let pgBossService: jest.Mocked<Partial<PgBossService>>;
 
   const mockProvider = {
@@ -41,6 +45,15 @@ describe('NotificationWorkerService', () => {
       isChannelAllowed: jest.fn().mockResolvedValue(true),
     };
 
+    throttleService = {
+      isThrottled: jest.fn().mockResolvedValue(false),
+    };
+
+    digestService = {
+      bufferNotification: jest.fn().mockResolvedValue({ isBuffered: false, isFirst: false }),
+      flushDigest: jest.fn(),
+    };
+
     pgBossService = {
       send: jest.fn().mockResolvedValue('job_id'),
       work: jest.fn().mockResolvedValue('worker_id'),
@@ -51,6 +64,8 @@ describe('NotificationWorkerService', () => {
       providerFactory as unknown as ProviderFactoryService,
       templateEngine,
       preferencesService as unknown as PreferencesService,
+      throttleService as unknown as ThrottleService,
+      digestService as unknown as DigestService,
       pgBossService as unknown as PgBossService,
     );
   });

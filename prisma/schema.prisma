@@ -12,12 +12,17 @@ enum ChannelType {
   WHATSAPP
   WEBHOOK
   PUSH
+  IN_APP
 }
 
 enum NotificationStatus {
+  SCHEDULED
   QUEUED
   PROCESSING
   DELIVERED
+  OPENED
+  CLICKED
+  BOUNCED
   FAILED
   FALLBACK_TRIGGERED
 }
@@ -38,18 +43,20 @@ model ApiKey {
 }
 
 model Subscriber {
-  id             String            @id @default(uuid())
-  externalId     String            @unique
-  email          String?
-  phoneNumber    String?
-  telegramChatId String?
-  webhookUrl     String?
-  fcmTokens      String[]          @default([])
-  metadata       Json?
-  preferences    UserPreference[]
-  logs           NotificationLog[]
-  createdAt      DateTime          @default(now())
-  updatedAt      DateTime          @updatedAt
+  id                 String              @id @default(uuid())
+  externalId         String              @unique
+  email              String?
+  phoneNumber        String?
+  telegramChatId     String?
+  webhookUrl         String?
+  fcmTokens          String[]            @default([])
+  metadata           Json?
+  preferences        UserPreference[]
+  logs               NotificationLog[]
+  inAppNotifications InAppNotification[]
+  digests            NotificationDigest[]
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
 }
 
 model Template {
@@ -79,6 +86,38 @@ model UserPreference {
   @@unique([subscriberId, channel, category])
 }
 
+model InAppNotification {
+  id           String     @id @default(uuid())
+  subscriberId String
+  subscriber   Subscriber @relation(fields: [subscriberId], references: [id], onDelete: Cascade)
+  title        String
+  message      String
+  data         Json?
+  isRead       Boolean    @default(false)
+  readAt       DateTime?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  @@index([subscriberId, isRead])
+  @@index([createdAt])
+}
+
+model NotificationDigest {
+  id           String      @id @default(uuid())
+  subscriberId String
+  subscriber   Subscriber  @relation(fields: [subscriberId], references: [id], onDelete: Cascade)
+  category     String      @default("DEFAULT")
+  templateSlug String
+  channel      ChannelType
+  items        Json
+  expiresAt    DateTime
+  status       String      @default("BUFFERING")
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  @@index([subscriberId, category, status])
+}
+
 model NotificationLog {
   id           String             @id @default(uuid())
   subscriberId String
@@ -100,4 +139,5 @@ model NotificationLog {
   @@index([subscriberId])
   @@index([status])
   @@index([templateSlug])
+  @@index([messageId])
 }

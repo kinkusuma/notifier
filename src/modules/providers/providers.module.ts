@@ -6,6 +6,7 @@ import { FonnteWhatsAppProvider } from './whatsapp/fonnte.provider';
 import { TwilioWhatsAppProvider } from './whatsapp/twilio.provider';
 import { GenericWebhookProvider } from './webhook/webhook.provider';
 import { FcmPushProvider } from './push/fcm.provider';
+import { InAppProvider } from './in-app/in-app.provider';
 import { ProviderFactoryService } from './provider-factory.service';
 
 @Global()
@@ -18,8 +19,9 @@ import { ProviderFactoryService } from './provider-factory.service';
     TwilioWhatsAppProvider,
     GenericWebhookProvider,
     FcmPushProvider,
+    InAppProvider,
     ProviderFactoryService,
   ],
-  exports: [ProviderFactoryService],
+  exports: [ProviderFactoryService, InAppProvider],
 })
 export class ProvidersModule {}

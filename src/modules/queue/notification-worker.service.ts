@@ -4,10 +4,13 @@ import { PrismaService } from '../../database/prisma.service';
 import { ProviderFactoryService } from '../providers/provider-factory.service';
 import { TemplateEngineService } from '../template-engine/template-engine.service';
 import { PreferencesService } from '../preferences/preferences.service';
+import { ThrottleService } from '../throttle/throttle.service';
+import { DigestService } from '../digest/digest.service';
 import { PgBossService } from './pg-boss.service';
 import { NotificationJobPayload } from './interfaces/job-payload.interface';
 
 export const NOTIFICATION_QUEUE_NAME = 'notifications-dispatch';
+export const DIGEST_QUEUE_NAME = 'notifications-digest-flush';
 
 @Injectable()
 export class NotificationWorkerService implements OnModuleInit {
@@ -18,6 +21,8 @@ export class NotificationWorkerService implements OnModuleInit {
     private readonly providerFactory: ProviderFactoryService,
     private readonly templateEngine: TemplateEngineService,
     private readonly preferencesService: PreferencesService,
+    private readonly throttleService: ThrottleService,
+    private readonly digestService: DigestService,
     private readonly pgBossService: PgBossService,
   ) {}
 
@@ -26,6 +31,7 @@ export class NotificationWorkerService implements OnModuleInit {
       return;
     }
 
+    // 1. Worker for individual dispatches
     await this.pgBossService.work<NotificationJobPayload>(
       NOTIFICATION_QUEUE_NAME,
       async (jobs) => {
@@ -40,7 +46,22 @@ export class NotificationWorkerService implements OnModuleInit {
       { batchSize: 5 },
     );
 
-    this.logger.log(`Worker registered on queue "${NOTIFICATION_QUEUE_NAME}".`);
+    // 2. Worker for digest flushes
+    await this.pgBossService.work<{ digestId: string }>(
+      DIGEST_QUEUE_NAME,
+      async (jobs) => {
+        for (const job of jobs) {
+          try {
+            await this.processDigestFlush(job.data.digestId);
+          } catch (err: any) {
+            this.logger.error(`Error flushing digest ${job.id}: ${err.message}`, err.stack);
+          }
+        }
+      },
+      { batchSize: 5 },
+    );
+
+    this.logger.log(`Workers registered on queues "${NOTIFICATION_QUEUE_NAME}" & "${DIGEST_QUEUE_NAME}".`);
   }
 
   async processJob(data: NotificationJobPayload): Promise<void> {
@@ -54,7 +75,6 @@ export class NotificationWorkerService implements OnModuleInit {
     });
 
     if (!subscriber) {
-      this.logger.error(`Subscriber ${subscriberExternalId} not found. Aborting.`);
       await this.prisma.notificationLog.update({
         where: { id: logId },
         data: {
@@ -70,7 +90,6 @@ export class NotificationWorkerService implements OnModuleInit {
     });
 
     if (!template) {
-      this.logger.error(`Template ${templateSlug} not found. Aborting.`);
       await this.prisma.notificationLog.update({
         where: { id: logId },
         data: {
@@ -95,10 +114,54 @@ export class NotificationWorkerService implements OnModuleInit {
       return;
     }
 
-    // 3. Resolve Recipient Target
+    // 3. Check Throttle / Frequency Cap
+    const isThrottled = await this.throttleService.isThrottled(subscriber.id, category || 'DEFAULT', 30);
+    if (isThrottled) {
+      await this.prisma.notificationLog.update({
+        where: { id: logId },
+        data: {
+          status: NotificationStatus.FAILED,
+          errorMessage: `Frequency cap exceeded for subscriber ${subscriberExternalId}`,
+        },
+      });
+      return;
+    }
+
+    // 4. Check Digest / Aggregation Window
+    const digestConfig = (template.metadata as any)?.digest;
+    if (digestConfig?.enabled) {
+      const windowMinutes = Number(digestConfig.windowMinutes) || 15;
+      const bufferRes = await this.digestService.bufferNotification(
+        subscriber.id,
+        category || 'DEFAULT',
+        template.slug,
+        channel,
+        variables,
+        windowMinutes,
+      );
+
+      if (bufferRes.isFirst && bufferRes.digestId) {
+        // Schedule flush job
+        await this.pgBossService.send(
+          DIGEST_QUEUE_NAME,
+          { digestId: bufferRes.digestId },
+          { startAfter: windowMinutes * 60 },
+        );
+      }
+
+      await this.prisma.notificationLog.update({
+        where: { id: logId },
+        data: {
+          status: NotificationStatus.DELIVERED,
+          messageId: `buffered_in_digest_${bufferRes.digestId}`,
+        },
+      });
+      return;
+    }
+
+    // 5. Resolve Recipient Target
     const recipient = recipientOverride || this.resolveRecipient(subscriber, channel);
     if (!recipient) {
-      this.logger.error(`No destination address found for channel ${channel} on subscriber ${subscriberExternalId}`);
       await this.prisma.notificationLog.update({
         where: { id: logId },
         data: {
@@ -109,12 +172,12 @@ export class NotificationWorkerService implements OnModuleInit {
       return;
     }
 
-    // 4. Render Template Content
+    // 6. Render Template Content
     const renderedSubject = template.subject ? this.templateEngine.render(template.subject, variables) : undefined;
     const renderedBodyText = this.templateEngine.render(template.bodyText, variables);
     const renderedBodyHtml = template.bodyHtml ? this.templateEngine.render(template.bodyHtml, variables) : undefined;
 
-    // 5. Update Status to PROCESSING
+    // 7. Update Status to PROCESSING
     await this.prisma.notificationLog.update({
       where: { id: logId },
       data: {
@@ -125,7 +188,7 @@ export class NotificationWorkerService implements OnModuleInit {
       },
     });
 
-    // 6. Dispatch via Provider
+    // 8. Dispatch via Provider
     const provider = this.providerFactory.getProvider(channel, providerOverride);
     const result = await provider.send({
       recipient,
@@ -135,9 +198,8 @@ export class NotificationWorkerService implements OnModuleInit {
       metadata: variables,
     });
 
-    // 7. Handle Dispatch Result
+    // 9. Handle Dispatch Result
     if (result.success) {
-      this.logger.log(`Notification logId: ${logId} successfully DELIVERED via ${provider.name}.`);
       await this.prisma.notificationLog.update({
         where: { id: logId },
         data: {
@@ -147,7 +209,6 @@ export class NotificationWorkerService implements OnModuleInit {
         },
       });
     } else {
-      this.logger.warn(`Notification logId: ${logId} FAILED via ${provider.name}: ${result.error}`);
       await this.prisma.notificationLog.update({
         where: { id: logId },
         data: {
@@ -158,11 +219,45 @@ export class NotificationWorkerService implements OnModuleInit {
         },
       });
 
-      // 8. Cross-Channel Fallback Logic
+      // Cross-Channel Fallback Logic
       if (template.fallbackChannel && template.fallbackChannel !== channel) {
         await this.triggerFallback(logId, subscriber, template, variables, category);
       }
     }
+  }
+
+  async processDigestFlush(digestId: string): Promise<void> {
+    const { subscriber, templateSlug, channel, combinedVariables, category } =
+      await this.digestService.flushDigest(digestId);
+
+    if (combinedVariables.count === 0) return;
+
+    const template = await this.prisma.template.findUnique({
+      where: { slug: templateSlug },
+    });
+    if (!template) return;
+
+    const recipient = this.resolveRecipient(subscriber, channel);
+    if (!recipient) return;
+
+    const renderedSubject = template.subject
+      ? this.templateEngine.render(template.subject, combinedVariables)
+      : undefined;
+    const renderedBodyText = this.templateEngine.render(template.bodyText, combinedVariables);
+    const renderedBodyHtml = template.bodyHtml
+      ? this.templateEngine.render(template.bodyHtml, combinedVariables)
+      : undefined;
+
+    const provider = this.providerFactory.getProvider(channel);
+    await provider.send({
+      recipient,
+      subject: renderedSubject,
+      content: renderedBodyText,
+      htmlContent: renderedBodyHtml,
+      metadata: combinedVariables,
+    });
+
+    this.logger.log(`Digest ${digestId} with ${combinedVariables.count} items flushed to ${recipient} via ${channel}`);
   }
 
   private resolveRecipient(subscriber: any, channel: ChannelType): string | null {
@@ -177,6 +272,8 @@ export class NotificationWorkerService implements OnModuleInit {
         return subscriber.webhookUrl || null;
       case ChannelType.PUSH:
         return subscriber.fcmTokens && subscriber.fcmTokens.length > 0 ? subscriber.fcmTokens[0] : null;
+      case ChannelType.IN_APP:
+        return subscriber.externalId || null;
       default:
         return null;
     }
@@ -193,19 +290,14 @@ export class NotificationWorkerService implements OnModuleInit {
     const fallbackRecipient = this.resolveRecipient(subscriber, fallbackChannel);
 
     if (!fallbackRecipient) {
-      this.logger.warn(`Cannot trigger fallback to ${fallbackChannel}: subscriber has no recipient configured.`);
       return;
     }
 
-    this.logger.log(`Triggering Cross-Channel Fallback from logId: ${parentLogId} to ${fallbackChannel}`);
-
-    // Update parent log to FALLBACK_TRIGGERED
     await this.prisma.notificationLog.update({
       where: { id: parentLogId },
       data: { status: NotificationStatus.FALLBACK_TRIGGERED },
     });
 
-    // Create new fallback notification log
     const fallbackLog = await this.prisma.notificationLog.create({
       data: {
         subscriberId: subscriber.id,
@@ -219,7 +311,6 @@ export class NotificationWorkerService implements OnModuleInit {
       },
     });
 
-    // Enqueue fallback job
     await this.pgBossService.send(
       NOTIFICATION_QUEUE_NAME,
       {

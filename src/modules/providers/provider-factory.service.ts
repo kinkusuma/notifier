@@ -9,6 +9,7 @@ import { FonnteWhatsAppProvider } from './whatsapp/fonnte.provider';
 import { TwilioWhatsAppProvider } from './whatsapp/twilio.provider';
 import { GenericWebhookProvider } from './webhook/webhook.provider';
 import { FcmPushProvider } from './push/fcm.provider';
+import { InAppProvider } from './in-app/in-app.provider';
 
 @Injectable()
 export class ProviderFactoryService {
@@ -23,6 +24,7 @@ export class ProviderFactoryService {
     private readonly twilioWhatsAppProvider: TwilioWhatsAppProvider,
     private readonly genericWebhookProvider: GenericWebhookProvider,
     private readonly fcmPushProvider: FcmPushProvider,
+    private readonly inAppProvider: InAppProvider,
   ) {
     this.registerProvider(this.smtpEmailProvider);
     this.registerProvider(this.resendEmailProvider);
@@ -31,6 +33,7 @@ export class ProviderFactoryService {
     this.registerProvider(this.twilioWhatsAppProvider);
     this.registerProvider(this.genericWebhookProvider);
     this.registerProvider(this.fcmPushProvider);
+    this.registerProvider(this.inAppProvider);
   }
 
   private registerProvider(provider: INotificationProvider) {
@@ -45,7 +48,6 @@ export class ProviderFactoryService {
       }
     }
 
-    // Default resolution based on channel & configuration
     switch (channel) {
       case ChannelType.EMAIL: {
         const defaultEmail = this.config.get<string>('DEFAULT_EMAIL_PROVIDER', 'RESEND').toUpperCase();
@@ -69,6 +71,8 @@ export class ProviderFactoryService {
         return this.genericWebhookProvider;
       case ChannelType.PUSH:
         return this.fcmPushProvider;
+      case ChannelType.IN_APP:
+        return this.inAppProvider;
       default:
         throw new NotFoundException(`No provider available for channel: ${channel}`);
     }

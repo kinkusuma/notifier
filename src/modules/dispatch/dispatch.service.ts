@@ -4,6 +4,7 @@ import { PrismaService } from '../../database/prisma.service';
 import { PgBossService } from '../queue/pg-boss.service';
 import { NOTIFICATION_QUEUE_NAME } from '../queue/notification-worker.service';
 import { DispatchNotificationDto } from './dto/dispatch-notification.dto';
+import { BroadcastNotificationDto } from './dto/broadcast-notification.dto';
 
 @Injectable()
 export class DispatchService {
@@ -29,8 +30,10 @@ export class DispatchService {
       throw new NotFoundException(`Template with slug "${dto.templateSlug}" not found`);
     }
 
-    // 3. Determine target channel
+    // 3. Determine target channel & status
     const channel = dto.channel || template.defaultChannel;
+    const isScheduled = !!(dto.sendAt || (dto.delaySeconds && dto.delaySeconds > 0));
+    const initialStatus = isScheduled ? NotificationStatus.SCHEDULED : NotificationStatus.QUEUED;
 
     // 4. Create initial NotificationLog
     const initialRecipient = dto.recipientOverride || this.getInitialRecipientPreview(subscriber, channel);
@@ -42,12 +45,19 @@ export class DispatchService {
         provider: dto.providerOverride || 'AUTO',
         recipient: initialRecipient || 'PENDING',
         content: '',
-        status: NotificationStatus.QUEUED,
+        status: initialStatus,
       },
     });
 
-    // 5. Calculate priority
+    // 5. Calculate priority & schedule delay
     const priority = dto.priority === Priority.HIGH ? 10 : dto.priority === Priority.LOW ? 1 : 5;
+    let startAfter: Date | number | undefined = undefined;
+
+    if (dto.sendAt) {
+      startAfter = new Date(dto.sendAt);
+    } else if (dto.delaySeconds && dto.delaySeconds > 0) {
+      startAfter = dto.delaySeconds;
+    }
 
     // 6. Enqueue to PgBoss
     await this.pgBossService.send(
@@ -64,17 +74,85 @@ export class DispatchService {
       },
       {
         priority,
+        startAfter,
         retryLimit: 3,
         retryBackoff: true,
       },
     );
 
     return {
-      status: NotificationStatus.QUEUED,
+      status: initialStatus,
       logId: log.id,
       subscriberExternalId: subscriber.externalId,
       templateSlug: template.slug,
       channel,
+      scheduledAt: dto.sendAt || (dto.delaySeconds ? `+${dto.delaySeconds}s` : undefined),
+    };
+  }
+
+  async broadcast(dto: BroadcastNotificationDto) {
+    // 1. Verify Template
+    const template = await this.prisma.template.findUnique({
+      where: { slug: dto.templateSlug },
+    });
+    if (!template) {
+      throw new NotFoundException(`Template with slug "${dto.templateSlug}" not found`);
+    }
+
+    // 2. Fetch targeted subscribers
+    let subscribers: Array<{ id: string; externalId: string; email: string | null; phoneNumber: string | null; telegramChatId: string | null; webhookUrl: string | null; fcmTokens: string[] }> = [];
+
+    if (dto.subscriberExternalIds && dto.subscriberExternalIds.length > 0) {
+      subscribers = await this.prisma.subscriber.findMany({
+        where: { externalId: { in: dto.subscriberExternalIds } },
+      });
+    } else {
+      subscribers = await this.prisma.subscriber.findMany({
+        take: 1000,
+        orderBy: { createdAt: 'desc' },
+      });
+    }
+
+    const channel = dto.channel || template.defaultChannel;
+    const queuedLogs: string[] = [];
+
+    // 3. Batch enqueue
+    for (const subscriber of subscribers) {
+      const recipient = this.getInitialRecipientPreview(subscriber, channel);
+      const log = await this.prisma.notificationLog.create({
+        data: {
+          subscriberId: subscriber.id,
+          templateSlug: template.slug,
+          channel,
+          provider: 'AUTO',
+          recipient: recipient || 'PENDING',
+          content: '',
+          status: NotificationStatus.QUEUED,
+        },
+      });
+
+      await this.pgBossService.send(
+        NOTIFICATION_QUEUE_NAME,
+        {
+          logId: log.id,
+          subscriberExternalId: subscriber.externalId,
+          templateSlug: template.slug,
+          channel,
+          variables: dto.variables || {},
+          category: dto.category || 'DEFAULT',
+        },
+        { retryLimit: 3, retryBackoff: true },
+      );
+
+      queuedLogs.push(log.id);
+    }
+
+    return {
+      status: 'BROADCAST_QUEUED',
+      templateSlug: template.slug,
+      channel,
+      totalTargeted: subscribers.length,
+      totalQueued: queuedLogs.length,
     };
   }
 
@@ -129,6 +207,8 @@ export class DispatchService {
         return subscriber.webhookUrl || null;
       case ChannelType.PUSH:
         return subscriber.fcmTokens?.[0] || null;
+      case ChannelType.IN_APP:
+        return subscriber.externalId || null;
       default:
         return null;
     }

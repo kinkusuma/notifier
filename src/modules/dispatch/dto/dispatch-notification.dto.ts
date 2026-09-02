@@ -1,6 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { ChannelType, Priority } from '@prisma/client';
-import { IsEnum, IsNotEmpty, IsObject, IsOptional, IsString } from 'class-validator';
+import { IsDateString, IsEnum, IsNotEmpty, IsNumber, IsObject, IsOptional, IsString } from 'class-validator';
 
 export class DispatchNotificationDto {
   @ApiProperty({ description: 'Target subscriber external ID', example: 'usr_123456' })
@@ -23,7 +23,7 @@ export class DispatchNotificationDto {
   @IsOptional()
   providerOverride?: string;
 
-  @ApiPropertyOptional({ description: 'Override destination recipient directly (e.g. custom email or number)' })
+  @ApiPropertyOptional({ description: 'Override destination recipient directly' })
   @IsString()
   @IsOptional()
   recipientOverride?: string;
@@ -42,4 +42,14 @@ export class DispatchNotificationDto {
   @IsEnum(Priority)
   @IsOptional()
   priority?: Priority;
+
+  @ApiPropertyOptional({ description: 'Schedule notification for future ISO8601 date-time', example: '2026-09-03T10:00:00Z' })
+  @IsDateString()
+  @IsOptional()
+  sendAt?: string;
+
+  @ApiPropertyOptional({ description: 'Delay notification dispatch by N seconds', example: 3600 })
+  @IsNumber()
+  @IsOptional()
+  delaySeconds?: number;
 }

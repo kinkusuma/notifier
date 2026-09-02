@@ -13,6 +13,7 @@ import { ApiBearerAuth, ApiHeader, ApiOperation, ApiQuery, ApiResponse, ApiTags 
 import { ChannelType, NotificationStatus } from '@prisma/client';
 import { DispatchService } from './dispatch.service';
 import { DispatchNotificationDto } from './dto/dispatch-notification.dto';
+import { BroadcastNotificationDto } from './dto/broadcast-notification.dto';
 import { ApiKeyGuard } from '../../common/guards/api-key.guard';
 
 @ApiTags('Notification Dispatch')
@@ -26,12 +27,23 @@ export class DispatchController {
   @Post()
   @HttpCode(HttpStatus.ACCEPTED)
   @ApiOperation({
-    summary: 'Dispatch notification to a subscriber via template and channel',
-    description: 'Enqueues notification to pg-boss queue, resolves user preference, renders template, and handles cross-channel fallback automatically.',
+    summary: 'Dispatch single notification (instant or scheduled)',
+    description: 'Enqueues notification to pg-boss queue with optional sendAt / delaySeconds scheduling, resolves user preference, renders template, and handles cross-channel fallback automatically.',
   })
-  @ApiResponse({ status: 202, description: 'Notification accepted and queued for delivery' })
+  @ApiResponse({ status: 202, description: 'Notification accepted and queued/scheduled for delivery' })
   async dispatch(@Body() dto: DispatchNotificationDto) {
     return this.dispatchService.dispatch(dto);
+  }
+
+  @Post('broadcast')
+  @HttpCode(HttpStatus.ACCEPTED)
+  @ApiOperation({
+    summary: 'Broadcast notification to multiple subscribers',
+    description: 'Bulk dispatch notification to a list of subscribers or all subscribers with high-throughput queue ingestion.',
+  })
+  @ApiResponse({ status: 202, description: 'Broadcast accepted and queued for delivery' })
+  async broadcast(@Body() dto: BroadcastNotificationDto) {
+    return this.dispatchService.broadcast(dto);
   }
 
   @Get('logs')

@@ -8,6 +8,8 @@ import { FonnteWhatsAppProvider } from './whatsapp/fonnte.provider';
 import { TwilioWhatsAppProvider } from './whatsapp/twilio.provider';
 import { GenericWebhookProvider } from './webhook/webhook.provider';
 import { FcmPushProvider } from './push/fcm.provider';
+import { InAppProvider } from './in-app/in-app.provider';
+import { PrismaService } from '../../database/prisma.service';
 
 describe('ProviderFactoryService', () => {
   let factory: ProviderFactoryService;
@@ -20,6 +22,7 @@ describe('ProviderFactoryService', () => {
   let twilio: TwilioWhatsAppProvider;
   let webhook: GenericWebhookProvider;
   let fcm: FcmPushProvider;
+  let inApp: InAppProvider;
 
   beforeEach(() => {
     config = {
@@ -37,6 +40,7 @@ describe('ProviderFactoryService', () => {
     twilio = new TwilioWhatsAppProvider(config as unknown as ConfigService);
     webhook = new GenericWebhookProvider();
     fcm = new FcmPushProvider(config as unknown as ConfigService);
+    inApp = new InAppProvider({} as unknown as PrismaService);
 
     factory = new ProviderFactoryService(
       config as unknown as ConfigService,
@@ -47,6 +51,7 @@ describe('ProviderFactoryService', () => {
       twilio,
       webhook,
       fcm,
+      inApp,
     );
   });
 
@@ -73,5 +78,10 @@ describe('ProviderFactoryService', () => {
   it('should resolve WhatsApp default to FONNTE', () => {
     const provider = factory.getProvider(ChannelType.WHATSAPP);
     expect(provider.name).toBe('FONNTE');
+  });
+
+  it('should resolve IN_APP provider', () => {
+    const provider = factory.getProvider(ChannelType.IN_APP);
+    expect(provider.name).toBe('IN_APP');
   });
 });
