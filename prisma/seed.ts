@@ -41,7 +41,7 @@ async function main() {
   });
   console.log(`✅ Seeded Subscriber: ${subscriber.externalId}`);
 
-  // 3. Seed Welcome Template
+  // 3. Seed Welcome Template (Email -> Telegram)
   const welcomeTemplate = await prisma.template.upsert({
     where: { slug: 'welcome-user' },
     update: {},
@@ -57,7 +57,7 @@ async function main() {
   });
   console.log(`✅ Seeded Template: ${welcomeTemplate.slug}`);
 
-  // 4. Seed OTP Template
+  // 4. Seed OTP Template (WhatsApp -> Email)
   const otpTemplate = await prisma.template.upsert({
     where: { slug: 'otp-verification' },
     update: {},
@@ -71,6 +71,41 @@ async function main() {
     },
   });
   console.log(`✅ Seeded Template: ${otpTemplate.slug}`);
+
+  // 5. Seed In-App Template (IN_APP)
+  const inAppTemplate = await prisma.template.upsert({
+    where: { slug: 'new-badge-unlocked' },
+    update: {},
+    create: {
+      slug: 'new-badge-unlocked',
+      title: 'Badge Unlocked Notification',
+      subject: 'Badge Unlocked: {{badgeName}}!',
+      bodyText: 'Congratulations {{name}}, you earned the {{badgeName}} badge!',
+      defaultChannel: ChannelType.IN_APP,
+    },
+  });
+  console.log(`✅ Seeded Template: ${inAppTemplate.slug}`);
+
+  // 6. Seed Digest Template (Email Digest)
+  const digestTemplate = await prisma.template.upsert({
+    where: { slug: 'activity-digest' },
+    update: {},
+    create: {
+      slug: 'activity-digest',
+      title: 'Activity Digest Summary',
+      subject: 'Your Daily Activity Summary ({{count}} updates)',
+      bodyText: 'Here is your update summary: {{#each items}} - {{this.message}} {{/each}}',
+      bodyHtml: '<h2>Activity Digest</h2><ul>{{#each items}}<li>{{this.message}}</li>{{/each}}</ul>',
+      defaultChannel: ChannelType.EMAIL,
+      metadata: {
+        digest: {
+          enabled: true,
+          windowMinutes: 15,
+        },
+      },
+    },
+  });
+  console.log(`✅ Seeded Template: ${digestTemplate.slug}`);
 
   console.log('🎉 Seeding completed successfully!');
 }
