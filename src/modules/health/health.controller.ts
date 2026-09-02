@@ -30,9 +30,11 @@ export class HealthController {
       },
       async () => {
         const ready = this.pgBoss.isReady();
+        const lastError = this.pgBoss.getLastError();
         return {
           pgBossQueue: {
             status: ready ? 'up' : 'down',
+            message: ready ? undefined : lastError || 'PgBoss is initializing or disconnected',
           },
         };
       },
