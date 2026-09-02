@@ -14,25 +14,31 @@ export class PgBossService implements OnModuleInit, OnModuleDestroy {
       return;
     }
 
-    const connectionString = this.config.get<string>('DATABASE_URL');
+    let connectionString = this.config.get<string>('DIRECT_URL') || this.config.get<string>('DATABASE_URL');
     if (!connectionString) {
       this.logger.warn('DATABASE_URL not configured. PgBoss will not start.');
       return;
     }
 
+    // If using Neon pooler host (-pooler.), prefer direct host for background workers/queues to prevent pooler disconnects
+    if (connectionString.includes('-pooler.')) {
+      connectionString = connectionString.replace('-pooler.', '.');
+    }
+
     try {
-      const isSsl = connectionString.includes('sslmode=require') || connectionString.includes('neon.tech');
+      const isSsl = connectionString.includes('sslmode=require') || connectionString.includes('neon.tech') || connectionString.includes('supabase.co');
       
       const pgBossModule = await import('pg-boss');
-      const PgBoss = (pgBossModule as any).default || pgBossModule;
+      const PgBoss = pgBossModule.PgBoss || (pgBossModule as any).default || pgBossModule;
 
       this.boss = new PgBoss({
         connectionString,
         ssl: isSsl ? { rejectUnauthorized: false } : undefined,
+        application_name: 'notifier_pg_boss',
       });
 
       this.boss.on('error', (error: any) => {
-        this.logger.error(`PgBoss error: ${error.message}`, error.stack);
+        this.logger.error(`PgBoss error: ${error.message}`);
       });
 
       await this.boss.start();
