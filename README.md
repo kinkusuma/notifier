@@ -242,7 +242,21 @@ curl -N -H "Accept: text/event-stream" \
 
 ---
 
-### 4. Inbound Delivery Status Webhooks
+### 4. Telegram 1-Click "Magic Connect"
+
+To automatically link a user's Telegram Chat ID without manual ID lookups:
+
+1. Generate the connect link:
+```bash
+curl -X GET "http://localhost:3000/api/v1/webhooks/telegram/connect-url/usr_demo_100"
+```
+*Output: `{"subscriberExternalId":"usr_demo_100","connectUrl":"https://t.me/YourBot?start=usr_demo_100"}`*
+
+2. When the user clicks the link and presses **START** in Telegram, your webhook receives the update, automatically links `telegramChatId` to `usr_demo_100`, and sends a confirmation message to the user!
+
+---
+
+### 5. Inbound Delivery Status Webhooks
 
 ```bash
 # Simulate Resend email opened event

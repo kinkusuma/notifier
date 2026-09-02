@@ -1,12 +1,18 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { NotificationStatus } from '@prisma/client';
 import { PrismaService } from '../../database/prisma.service';
+import { TelegramBotProvider } from '../providers/telegram/telegram.provider';
 
 @Injectable()
 export class WebhooksService {
   private readonly logger = new Logger(WebhooksService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly telegramProvider: TelegramBotProvider,
+    private readonly config: ConfigService,
+  ) {}
 
   async handleResendWebhook(payload: any) {
     const eventType = payload.type;
@@ -108,5 +114,66 @@ export class WebhooksService {
     });
 
     return { updated: true, logId: log.id, status };
+  }
+
+  /**
+   * Telegram Magic Connect Webhook
+   * Automatically captures chatId from user clicking "https://t.me/bot?start=<subscriberExternalId>"
+   */
+  async handleTelegramWebhook(payload: any) {
+    const message = payload.message || payload.edited_message;
+    if (!message || !message.chat?.id) {
+      return { ok: true, ignored: true };
+    }
+
+    const chatId = String(message.chat.id);
+    const text = (message.text || '').trim();
+
+    if (text.startsWith('/start')) {
+      const parts = text.split(' ');
+      const externalId = parts.length > 1 ? parts[1].trim() : null;
+
+      if (externalId) {
+        const subscriber = await this.prisma.subscriber.findUnique({
+          where: { externalId },
+        });
+
+        if (subscriber) {
+          await this.prisma.subscriber.update({
+            where: { externalId },
+            data: { telegramChatId: chatId },
+          });
+
+          this.logger.log(`✅ Telegram Magic Connect: Linked Subscriber ${externalId} with Chat ID ${chatId}`);
+
+          // Reply confirmation to user
+          await this.telegramProvider.send({
+            recipient: chatId,
+            content: `🎉 <b>Selamat!</b> Akun Anda (<code>${externalId}</code>) berhasil terhubung ke sistem notifikasi.\n\nAnda akan menerima pemberitahuan otomatis di sini.`,
+          });
+
+          return { ok: true, linked: true, subscriberExternalId: externalId, chatId };
+        } else {
+          await this.telegramProvider.send({
+            recipient: chatId,
+            content: `⚠️ ID Pengguna <code>${externalId}</code> tidak ditemukan di sistem. Pastikan Anda mendaftar terlebih dahulu.`,
+          });
+          return { ok: true, linked: false, reason: 'Subscriber not found' };
+        }
+      } else {
+        await this.telegramProvider.send({
+          recipient: chatId,
+          content: `👋 <b>Halo!</b> Ini adalah bot Notifier.\n\nUntuk menghubungkan akun Anda, gunakan tombol <i>"Hubungkan Telegram"</i> dari aplikasi Anda.`,
+        });
+        return { ok: true, linked: false, reason: 'No start payload' };
+      }
+    }
+
+    return { ok: true, ignored: true };
+  }
+
+  getTelegramConnectUrl(subscriberExternalId: string): string {
+    const botUsername = this.config.get<string>('TELEGRAM_BOT_USERNAME', 'YourNotifierBot');
+    return `https://t.me/${botUsername}?start=${encodeURIComponent(subscriberExternalId)}`;
   }
 }

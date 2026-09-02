@@ -1,10 +1,14 @@
 import { NotificationStatus } from '@prisma/client';
+import { ConfigService } from '@nestjs/config';
 import { WebhooksService } from './webhooks.service';
 import { PrismaService } from '../../database/prisma.service';
+import { TelegramBotProvider } from '../providers/telegram/telegram.provider';
 
 describe('WebhooksService', () => {
   let service: WebhooksService;
   let prisma: jest.Mocked<Partial<PrismaService>>;
+  let telegramProvider: jest.Mocked<Partial<TelegramBotProvider>>;
+  let config: jest.Mocked<Partial<ConfigService>>;
 
   beforeEach(() => {
     prisma = {
@@ -12,8 +16,25 @@ describe('WebhooksService', () => {
         findFirst: jest.fn(),
         update: jest.fn(),
       } as any,
+      subscriber: {
+        findUnique: jest.fn(),
+        update: jest.fn(),
+      } as any,
     };
-    service = new WebhooksService(prisma as unknown as PrismaService);
+
+    telegramProvider = {
+      send: jest.fn().mockResolvedValue({ success: true }),
+    };
+
+    config = {
+      get: jest.fn().mockReturnValue('MyNotifierBot'),
+    };
+
+    service = new WebhooksService(
+      prisma as unknown as PrismaService,
+      telegramProvider as unknown as TelegramBotProvider,
+      config as unknown as ConfigService,
+    );
   });
 
   it('should update log status on Resend email.opened event', async () => {
@@ -58,5 +79,36 @@ describe('WebhooksService', () => {
         data: expect.objectContaining({ status: NotificationStatus.OPENED }),
       }),
     );
+  });
+
+  it('should automatically link subscriber on Telegram /start <externalId>', async () => {
+    (prisma.subscriber!.findUnique as jest.Mock).mockResolvedValue({
+      id: 'sub_1',
+      externalId: 'usr_123',
+    });
+
+    const payload = {
+      message: {
+        chat: { id: 987654321 },
+        text: '/start usr_123',
+      },
+    };
+
+    const result = await service.handleTelegramWebhook(payload);
+    expect(result.linked).toBe(true);
+    expect(prisma.subscriber!.update).toHaveBeenCalledWith({
+      where: { externalId: 'usr_123' },
+      data: { telegramChatId: '987654321' },
+    });
+    expect(telegramProvider.send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        recipient: '987654321',
+      }),
+    );
+  });
+
+  it('should generate telegram magic connect url', () => {
+    const url = service.getTelegramConnectUrl('usr_123');
+    expect(url).toBe('https://t.me/MyNotifierBot?start=usr_123');
   });
 });
