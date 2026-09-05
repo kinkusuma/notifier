@@ -90,6 +90,9 @@
 
 ## 🚀 Getting Started
 
+> [!TIP]
+> 📖 **Looking for a complete step-by-step guide?** Check out the [Comprehensive End-to-End Tutorial (GETTING_STARTED.md)](file:///e:/Users/MSI/Documents/project/notifier/GETTING_STARTED.md) covering all channels (Email, WhatsApp, Telegram, Push FCM, Webhook, In-App SSE) with ready-to-run curl examples!
+
 ### 1. Prerequisites
 
 - **Node.js** `>= 20.x`
