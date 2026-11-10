@@ -1,4 +1,4 @@
-# 🚀 Getting Started — End-to-End Tutorial Guide
+# 🚀 Getting Started
 
 A comprehensive, step-by-step walkthrough to configure, register subscribers, create dynamic templates, and dispatch notifications across **all supported delivery channels** (Email, WhatsApp, Telegram, Firebase Push, Webhook, and In-App Real-time SSE).
 
