@@ -1,6 +1,6 @@
 <div align="center">
 
-# ⚡ Notifier — Multi-Channel Notification Dispatcher Engine
+# ⚡ Notifier: Multi-Channel Notification Dispatcher Engine
 
 **A high-performance, modular notification dispatching engine built with NestJS 11, Prisma ORM, PostgreSQL, and pg-boss queue.**
 
